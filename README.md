@@ -60,7 +60,7 @@ Trang Dashboard Quản trị sẽ hiển thị tại: [http://localhost:3000](ht
 ---
 
 ## 🧪 Chạy Kiểm thử Logic Backend
-Dự án đã tích hợp sẵn một script kiểm thử tự động toàn bộ logic nghiệp vụ (sinh key, kích hoạt thiết bị, giới hạn số thiết bị tối đa, gia hạn key và thu hồi key):
+Dự án đã tích hợp script kiểm thử tự động trên SQLite bộ nhớ, không ghi dữ liệu rác vào PostgreSQL. Script bao phủ đăng nhập, đổi mật khẩu, sinh key, kích hoạt/check thiết bị, giới hạn thiết bị, lifetime filter, gia hạn, thu hồi và xóa key:
 
 ```bash
 cd backend
@@ -73,4 +73,4 @@ Nếu màn hình in ra `All integration tests passed successfully!` nghĩa là t
 
 ## 🔒 Tài liệu Deployment
 Để đưa hệ thống lên máy chủ VPS Ubuntu chạy thực tế, tham khảo tài liệu hướng dẫn chi tiết tại:  
-👉 [docs/DEPLOY_UBUNTU.md](file:///d:/antigravity/Web_quan_ly_license_key/docs/DEPLOY_UBUNTU.md)
+👉 [docs/DEPLOY_UBUNTU.md](docs/DEPLOY_UBUNTU.md)

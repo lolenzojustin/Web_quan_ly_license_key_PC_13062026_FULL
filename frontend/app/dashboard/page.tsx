@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { api } from "@/lib/api";
+import { api, getErrorMessage } from "@/lib/api";
 import { 
   Key, 
   CheckCircle2, 
@@ -23,25 +23,34 @@ interface DashboardStats {
   total_activations: number;
 }
 
+interface RecentLicense {
+  id: string;
+  key: string;
+  category_name: string | null;
+  devices_count: number;
+  max_devices: number;
+  status: string;
+}
+
 export default function DashboardOverview() {
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [recentLicenses, setRecentLicenses] = useState<any[]>([]);
+  const [recentLicenses, setRecentLicenses] = useState<RecentLicense[]>([]);
 
   useEffect(() => {
     async function loadDashboardData() {
       try {
         setLoading(true);
         // Load stats
-        const statsData = await api.get("/api/licenses/stats");
+        const statsData = await api.get<DashboardStats>("/api/licenses/stats");
         setStats(statsData);
         
         // Load recent licenses
-        const licensesData = await api.get("/api/licenses", { page: 1, page_size: 5 });
+        const licensesData = await api.get<{ items: RecentLicense[] }>("/api/licenses", { page: 1, page_size: 5 });
         setRecentLicenses(licensesData.items || []);
-      } catch (err: any) {
-        setError(err.message || "Failed to load dashboard data.");
+      } catch (err: unknown) {
+        setError(getErrorMessage(err, "Failed to load dashboard data."));
       } finally {
         setLoading(false);
       }
@@ -199,7 +208,7 @@ export default function DashboardOverview() {
                 {recentLicenses.length === 0 ? (
                   <tr>
                     <td colSpan={4} className="py-6 text-center text-slate-500 text-xs">
-                      No license keys generated yet. Click "Generate License Keys" to start.
+                      No license keys generated yet. Click &quot;Generate License Keys&quot; to start.
                     </td>
                   </tr>
                 ) : (

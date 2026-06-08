@@ -1,12 +1,14 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Query
+from sqlalchemy import func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-from typing import List, Optional
+from typing import List, Literal, Optional
 import uuid
 
 from app.api import deps
 from app.models.admin import Admin
 from app.models.activation import LicenseActivation
+from app.models.category import Category
 from app.schemas.license import LicenseCreate, LicenseOut, LicenseRenew
 from app.schemas.activation import ActivationOut
 from app.services import license_service
@@ -19,7 +21,7 @@ async def get_licenses(
     page_size: int = Query(default=20, ge=1, le=100),
     search: Optional[str] = Query(default=None),
     category_id: Optional[uuid.UUID] = Query(default=None),
-    status: Optional[str] = Query(default=None),
+    status: Optional[Literal["new", "active", "expired", "revoked", "lifetime"]] = Query(default=None),
     db: AsyncSession = Depends(deps.get_db),
     current_admin: Admin = Depends(deps.get_current_admin)
 ):
@@ -40,9 +42,7 @@ async def get_license_stats(
     current_admin: Admin = Depends(deps.get_current_admin)
 ):
     """Retrieve aggregate statistics for dashboard overview."""
-    from sqlalchemy import select, func
     from app.models.license import License
-    from app.models.activation import LicenseActivation
     
     await license_service.sync_expired_licenses(db)
     
@@ -65,7 +65,11 @@ async def get_license_stats(
             stats[status_name] = count
         stats["total"] += count
         
-    act_stmt = select(func.count(LicenseActivation.id))
+    act_stmt = (
+        select(func.count(LicenseActivation.id))
+        .join(License, LicenseActivation.license_id == License.id)
+        .where(License.status == "active")
+    )
     act_res = await db.execute(act_stmt)
     stats["total_activations"] = act_res.scalar() or 0
     
@@ -80,20 +84,10 @@ async def create_licenses(
     """Generate and create license keys in bulk."""
     try:
         licenses = await license_service.create_licenses(db, data)
-        # We need to construct output. Note that for new licenses:
-        # device count is 0 and we can fetch the category name from db
-        # but since we already verified the category, we can return them easily.
-        # Let's run a select to get the category name or fetch it.
-        # We can also map them directly.
-        category_name = None
-        if licenses:
-            category_name = licenses[0].category.name if hasattr(licenses[0], "category") and licenses[0].category else None
-            if not category_name:
-                from app.models.category import Category
-                cat_res = await db.execute(select(Category).filter_by(id=data.category_id))
-                cat = cat_res.scalars().first()
-                category_name = cat.name if cat else None
-                
+        category_name = await db.scalar(
+            select(Category.name).where(Category.id == data.category_id)
+        )
+
         out = []
         for l in licenses:
             out.append(
@@ -133,14 +127,8 @@ async def renew_license(
         count_res = await db.execute(
             select(func.count(LicenseActivation.id)).where(LicenseActivation.license_id == license_id)
         )
-        # Wait, let's use func from sqlalchemy
-        from sqlalchemy import func
-        count_res = await db.execute(
-            select(func.count(LicenseActivation.id)).where(LicenseActivation.license_id == license_id)
-        )
         devices_count = count_res.scalar() or 0
-        
-        from app.models.category import Category
+
         cat_res = await db.execute(select(Category).filter_by(id=license_obj.category_id))
         cat = cat_res.scalars().first()
         category_name = cat.name if cat else None
@@ -174,6 +162,19 @@ async def revoke_license(
     try:
         await license_service.revoke_license(db, license_id)
         return {"status": "success", "message": "License key revoked successfully"}
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+@router.delete("/{license_id}/permanent")
+async def delete_revoked_license(
+    license_id: uuid.UUID,
+    db: AsyncSession = Depends(deps.get_db),
+    current_admin: Admin = Depends(deps.get_current_admin)
+):
+    """Permanently delete a revoked license key."""
+    try:
+        await license_service.delete_revoked_license(db, license_id)
+        return {"status": "success", "message": "Revoked license key permanently deleted"}
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 

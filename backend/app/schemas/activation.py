@@ -1,14 +1,39 @@
 from datetime import datetime
 import uuid
 from typing import Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 class ClientActivateRequest(BaseModel):
     license_key: str = Field(..., min_length=1, max_length=255)
     device_id: str = Field(..., min_length=1, max_length=255)
+    category: str = Field(..., min_length=1, max_length=255)
     device_name: Optional[str] = Field(default=None, max_length=255)
     os_info: Optional[str] = Field(default=None, max_length=255)
     app_version: Optional[str] = Field(default=None, max_length=255)
+
+    @field_validator("license_key")
+    @classmethod
+    def normalize_license_key(cls, value: str) -> str:
+        normalized = value.strip().upper()
+        if not normalized:
+            raise ValueError("license_key must not be blank")
+        return normalized
+
+    @field_validator("device_id")
+    @classmethod
+    def normalize_device_id(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("device_id must not be blank")
+        return normalized
+
+    @field_validator("category")
+    @classmethod
+    def normalize_category(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("category must not be blank")
+        return normalized
 
 class ClientActivateResponse(BaseModel):
     status: str
@@ -22,6 +47,31 @@ class ClientActivateResponse(BaseModel):
 class ClientCheckRequest(BaseModel):
     license_key: str = Field(..., min_length=1, max_length=255)
     device_id: str = Field(..., min_length=1, max_length=255)
+    category: str = Field(..., min_length=1, max_length=255)
+
+    @field_validator("license_key")
+    @classmethod
+    def normalize_license_key(cls, value: str) -> str:
+        normalized = value.strip().upper()
+        if not normalized:
+            raise ValueError("license_key must not be blank")
+        return normalized
+
+    @field_validator("device_id")
+    @classmethod
+    def normalize_device_id(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("device_id must not be blank")
+        return normalized
+
+    @field_validator("category")
+    @classmethod
+    def normalize_category(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("category must not be blank")
+        return normalized
 
 class ClientCheckResponse(BaseModel):
     status: str

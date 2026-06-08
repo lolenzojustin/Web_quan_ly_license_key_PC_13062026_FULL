@@ -1,13 +1,14 @@
 "use client";
 
 import { useState } from "react";
-import { api } from "@/lib/api";
-import { ShieldCheck, Lock, AlertCircle, CheckCircle2 } from "lucide-react";
+import { api, getErrorMessage } from "@/lib/api";
+import { ShieldCheck, Lock, AlertCircle, CheckCircle2, Key } from "lucide-react";
 
 export default function SettingsPage() {
   const [oldPassword, setOldPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
+  const [authCode, setAuthCode] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
@@ -17,13 +18,23 @@ export default function SettingsPage() {
     setError("");
     setSuccess("");
 
+    if (!authCode) {
+      setError("Security Code is required.");
+      return;
+    }
+
     if (newPassword !== confirmPassword) {
       setError("New password and confirmation password do not match.");
       return;
     }
 
-    if (newPassword.length < 4) {
-      setError("New password must be at least 4 characters long.");
+    if (newPassword.length < 8) {
+      setError("New password must be at least 8 characters long.");
+      return;
+    }
+
+    if (new TextEncoder().encode(newPassword).length > 72) {
+      setError("New password must not exceed 72 UTF-8 bytes.");
       return;
     }
 
@@ -33,14 +44,16 @@ export default function SettingsPage() {
       await api.post("/api/auth/change-password", {
         old_password: oldPassword,
         new_password: newPassword,
+        auth_code: authCode,
       });
 
       setSuccess("Your admin account password has been updated successfully.");
       setOldPassword("");
       setNewPassword("");
       setConfirmPassword("");
-    } catch (err: any) {
-      setError(err.message || "Failed to update password. Please check your old password.");
+      setAuthCode("");
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, "Failed to update password. Please check your old password or security code."));
     } finally {
       setLoading(false);
     }
@@ -86,9 +99,30 @@ export default function SettingsPage() {
                 id="old-password"
                 type="password"
                 required
+                maxLength={72}
                 placeholder="Enter current password"
                 value={oldPassword}
                 onChange={(e) => setOldPassword(e.target.value)}
+                className="block w-full pl-10 pr-4 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-slate-100 placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-blue-600 focus:border-transparent transition-all text-sm"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label htmlFor="auth-code" className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">
+              Security Code / Mã thay đổi mật khẩu
+            </label>
+            <div className="relative">
+              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-500">
+                <Key className="w-4 h-4" />
+              </div>
+              <input
+                id="auth-code"
+                type="password"
+                required
+                placeholder="Enter password change code"
+                value={authCode}
+                onChange={(e) => setAuthCode(e.target.value)}
                 className="block w-full pl-10 pr-4 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-slate-100 placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-blue-600 focus:border-transparent transition-all text-sm"
               />
             </div>
@@ -108,7 +142,8 @@ export default function SettingsPage() {
                 id="new-password"
                 type="password"
                 required
-                placeholder="At least 4 characters"
+                maxLength={72}
+                placeholder="At least 8 characters"
                 value={newPassword}
                 onChange={(e) => setNewPassword(e.target.value)}
                 className="block w-full pl-10 pr-4 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-slate-100 placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-blue-600 focus:border-transparent transition-all text-sm"
@@ -128,6 +163,7 @@ export default function SettingsPage() {
                 id="confirm-password"
                 type="password"
                 required
+                maxLength={72}
                 placeholder="Re-enter new password"
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}

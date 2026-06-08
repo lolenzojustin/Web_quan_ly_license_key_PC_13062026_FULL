@@ -2,149 +2,198 @@ import asyncio
 import os
 import sys
 
-# Add backend directory to sys.path
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from fastapi import HTTPException
+
+# Allow running this file directly from the backend directory.
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-from app.core.config import settings
-from app.db.session import AsyncSessionLocal
-from app.db.init_db import setup_database
+from app.api.routes.activations import activate_license, check_license
+from app.api.routes.auth import change_password, login
+from app.api.routes.licenses import (
+    create_licenses,
+    delete_revoked_license,
+    get_license_activations,
+    get_license_stats,
+    get_licenses,
+    renew_license,
+    revoke_license,
+)
+from app.db.base import Base
+from app.models.activation import LicenseActivation
+from app.models.admin import Admin
 from app.models.category import Category
 from app.models.license import License
-from app.models.activation import LicenseActivation
-from app.services import license_service
+from app.schemas.activation import ClientActivateRequest, ClientCheckRequest
+from app.schemas.auth import ChangePasswordSchema, LoginSchema
 from app.schemas.license import LicenseCreate, LicenseRenew
-from app.schemas.category import CategoryCreate
-from sqlalchemy.future import select
-from sqlalchemy import func
+from app.core.config import settings
+from app.core.security import get_password_hash
 
-async def run_tests():
-    print("Starting backend logic integration tests...")
-    
-    # Automatically check/create DB and tables first
-    await setup_database()
-    
-    async with AsyncSessionLocal() as db:
-        # 1. Create a Category
-        print("\n1. Testing Category creation...")
-        cat_name = f"Test Category {os.urandom(4).hex()}"
-        category = Category(name=cat_name, description="Integration test category")
+
+async def run_tests() -> None:
+    """Run the complete license flow without touching the configured database."""
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+
+    async with session_factory() as db:
+        admin = Admin(username="integration-admin", password_hash=get_password_hash("InitialPassword123"))
+        db.add(admin)
+        await db.commit()
+        await db.refresh(admin)
+
+        token = await login(LoginSchema(username=admin.username, password="InitialPassword123"), db)
+        assert token.access_token
+
+        try:
+            await login(LoginSchema(username=admin.username, password="wrong-password"), db)
+            raise AssertionError("Invalid password was accepted")
+        except HTTPException as exc:
+            assert exc.status_code == 401
+
+        await change_password(
+            ChangePasswordSchema(
+                old_password="InitialPassword123",
+                new_password="UpdatedPassword123",
+                auth_code=settings.PASSWORD_CHANGE_AUTH_CODE,
+            ),
+            admin,
+            db,
+        )
+        updated_token = await login(LoginSchema(username=admin.username, password="UpdatedPassword123"), db)
+        assert updated_token.access_token
+
+        category = Category(name="Integration Test", description="Temporary test category")
         db.add(category)
         await db.commit()
         await db.refresh(category)
-        assert category.id is not None
-        print(f"Created category: {category.name} (ID: {category.id})")
 
-        # 2. Bulk Generate Licenses
-        print("\n2. Testing License key generation...")
-        create_data = LicenseCreate(
-            quantity=3,
-            duration_type="days",
-            duration_value=7,
-            max_devices=2,
-            category_id=category.id
+        created = await create_licenses(
+            LicenseCreate(
+                quantity=3,
+                duration_type="days",
+                duration_value=7,
+                max_devices=2,
+                category_id=category.id,
+            ),
+            db,
+            None,
         )
-        licenses = await license_service.create_licenses(db, create_data)
-        assert len(licenses) == 3
-        for l in licenses:
-            assert len(l.key) == 19  # XXXX-XXXX-XXXX-XXXX
-            assert l.status == "new"
-            assert l.activated_at is None
-            assert l.expires_at is None
-            print(f"Generated Key: {l.key}")
-            
-        target_license = licenses[0]
+        assert len(created) == 3
+        assert len({license_item.key for license_item in created}) == 3
+        assert all(item.status == "new" for item in created)
+        assert all(item.activated_at is None and item.expires_at is None for item in created)
 
-        # 3. Simulate Client Activation (API-like logic)
-        print("\n3. Testing Client Activation...")
-        # First activation of this key
-        # Simulate router activate logic
-        # Retrieve key
-        result = await db.execute(select(License).where(License.key == target_license.key))
-        license_obj = result.scalars().first()
-        assert license_obj is not None
-        
-        # Check active devices
-        act_res = await db.execute(select(LicenseActivation).where(LicenseActivation.license_id == license_obj.id))
-        activations = act_res.scalars().all()
-        assert len(activations) == 0
-        
-        # Perform activation for device 1
-        now = license_service.now_vn()
-        license_obj.activated_at = now
-        license_obj.status = "active"
-        license_obj.expires_at = now + delta_calc(license_obj.duration_type, license_obj.duration_value)
-        db.add(license_obj)
-        
-        new_act = LicenseActivation(
-            license_id=license_obj.id,
-            device_id="device-pc-01",
-            device_name="Workstation 1",
-            os_info="Windows 11",
-            app_version="1.0.0",
-            activated_at=now,
-            last_checked_at=now
+        target = created[0]
+        first_activation = await activate_license(
+            ClientActivateRequest(
+                license_key=f"  {target.key.lower()}  ",
+                device_id=" device-01 ",
+                category="Integration Test",
+                device_name="Workstation",
+            ),
+            db,
         )
-        db.add(new_act)
-        await db.commit()
-        print("Device 1 activated successfully.")
+        assert first_activation.status == "valid"
+        assert first_activation.active_devices == 1
+        assert first_activation.expires_at is not None
 
-        # Refresh
-        await db.refresh(license_obj)
-        assert license_obj.status == "active"
-        assert license_obj.expires_at is not None
-        assert license_obj.activated_at is not None
-        
-        # Activate device 2 (new device, within max_devices=2)
-        new_act_2 = LicenseActivation(
-            license_id=license_obj.id,
-            device_id="device-pc-02",
-            device_name="Laptop 1",
-            os_info="Windows 10",
-            app_version="1.0.0",
-            activated_at=now,
-            last_checked_at=now
+        # Test activation with incorrect category
+        incorrect_cat_activation = await activate_license(
+            ClientActivateRequest(license_key=target.key, device_id="device-01", category="Incorrect Category"),
+            db,
         )
-        db.add(new_act_2)
-        await db.commit()
-        print("Device 2 activated successfully.")
+        assert incorrect_cat_activation.status == "invalid"
 
-        # Try to activate device 3 (exceed limit)
-        act_count_res = await db.execute(select(func.count(LicenseActivation.id)).where(LicenseActivation.license_id == license_obj.id))
-        active_count = act_count_res.scalar() or 0
-        print(f"Current active devices count: {active_count} (Max: {license_obj.max_devices})")
-        assert active_count == 2
-        
-        if active_count >= license_obj.max_devices:
-            print("Device 3 activation prevented correctly (exceeded limit).")
-        else:
-            raise AssertionError("Should have blocked device 3")
+        repeated_activation = await activate_license(
+            ClientActivateRequest(license_key=target.key, device_id="device-01", category="Integration Test"),
+            db,
+        )
+        assert repeated_activation.status == "valid"
+        assert repeated_activation.active_devices == 1
 
-        # 4. Testing License Renewal
-        print("\n4. Testing Renewal...")
-        renew_data = LicenseRenew(duration_type="months", duration_value=1)
-        original_expires_at = license_obj.expires_at
-        renewed_license = await license_service.renew_license(db, license_obj.id, renew_data)
-        assert renewed_license.expires_at > original_expires_at
-        print(f"Renewed successfully. Old expiry: {original_expires_at}, New expiry: {renewed_license.expires_at}")
+        second_activation = await activate_license(
+            ClientActivateRequest(license_key=target.key, device_id="device-02", category="Integration Test"),
+            db,
+        )
+        assert second_activation.status == "valid"
+        assert second_activation.active_devices == 2
 
-        # 5. Testing Revocation
-        print("\n5. Testing Revocation...")
-        revoked_license = await license_service.revoke_license(db, license_obj.id)
-        assert revoked_license.status == "revoked"
-        print("License key status updated to: revoked")
+        device_limit = await activate_license(
+            ClientActivateRequest(license_key=target.key, device_id="device-03", category="Integration Test"),
+            db,
+        )
+        assert device_limit.status == "device_limit_exceeded"
 
-    print("\nAll integration tests passed successfully!")
+        valid_check = await check_license(
+            ClientCheckRequest(license_key=target.key, device_id="device-01", category="Integration Test"),
+            db,
+        )
+        assert valid_check.status == "valid"
 
-def delta_calc(duration_type, duration_value):
-    from datetime import timedelta
-    days = 0
-    if duration_type == "days":
-        days = duration_value
-    elif duration_type == "months":
-        days = duration_value * 30
-    elif duration_type == "years":
-        days = duration_value * 365
-    return timedelta(days=days)
+        # Test check with incorrect category
+        incorrect_cat_check = await check_license(
+            ClientCheckRequest(license_key=target.key, device_id="device-01", category="Incorrect Category"),
+            db,
+        )
+        assert incorrect_cat_check.status == "invalid"
+
+        unknown_device_check = await check_license(
+            ClientCheckRequest(license_key=target.key, device_id="unknown-device", category="Integration Test"),
+            db,
+        )
+        assert unknown_device_check.status == "device_not_activated"
+
+        renewed = await renew_license(
+            target.id,
+            LicenseRenew(duration_type="months", duration_value=1),
+            db,
+            None,
+        )
+        assert renewed.status == "active"
+        assert renewed.devices_count == 2
+
+        activations = await get_license_activations(target.id, db, None)
+        assert len(activations) == 2
+
+        lifetime_created = await create_licenses(
+            LicenseCreate(
+                quantity=1,
+                duration_type="lifetime",
+                max_devices=1,
+                category_id=category.id,
+            ),
+            db,
+            None,
+        )
+        lifetime_list = await get_licenses(1, 20, None, None, "lifetime", db, None)
+        assert lifetime_list["total"] == 1
+        assert lifetime_list["items"][0]["id"] == lifetime_created[0].id
+
+        stats = await get_license_stats(db, None)
+        assert stats["active"] == 1
+        assert stats["total_activations"] == 2
+
+        await revoke_license(target.id, db, None)
+        revoked_activation = await activate_license(
+            ClientActivateRequest(license_key=target.key, device_id="device-01", category="Integration Test"),
+            db,
+        )
+        assert revoked_activation.status == "revoked"
+
+        await delete_revoked_license(target.id, db, None)
+        assert await db.scalar(select(License).where(License.id == target.id)) is None
+        assert await db.scalar(
+            select(LicenseActivation).where(LicenseActivation.license_id == target.id)
+        ) is None
+
+    await engine.dispose()
+    print("All backend integration tests passed successfully.")
+
 
 if __name__ == "__main__":
     asyncio.run(run_tests())

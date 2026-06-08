@@ -1,19 +1,23 @@
-from datetime import datetime, timedelta
+from datetime import timedelta
 from typing import Any, Union
+import bcrypt
 from jose import jwt
-from passlib.context import CryptContext
 from app.core.config import settings
 from app.core.timezone import now_vn
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     """Verify a plain password against its hashed version."""
-    return pwd_context.verify(plain_password, hashed_password)
+    try:
+        return bcrypt.checkpw(plain_password.encode("utf-8"), hashed_password.encode("utf-8"))
+    except ValueError:
+        return False
 
 def get_password_hash(password: str) -> str:
     """Hash a password using bcrypt."""
-    return pwd_context.hash(password)
+    encoded = password.encode("utf-8")
+    if len(encoded) > 72:
+        raise ValueError("Password must not exceed 72 UTF-8 bytes")
+    return bcrypt.hashpw(encoded, bcrypt.gensalt()).decode("utf-8")
 
 def create_access_token(subject: Union[str, Any], expires_delta: timedelta = None) -> str:
     """Create a JWT access token for authentication."""

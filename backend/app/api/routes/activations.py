@@ -1,7 +1,10 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from datetime import timedelta
+
+from fastapi import APIRouter, Depends
+from sqlalchemy import func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-from sqlalchemy import func
+from sqlalchemy.orm import selectinload
 
 from app.api import deps
 from app.core.timezone import now_vn, to_vn_tz
@@ -24,13 +27,23 @@ async def activate_license(
     """
     Activate a license key for a client PC device.
     """
-    # 1. Retrieve the license key
+    # 1. Retrieve the license key and its category
     result = await db.execute(
-        select(License).where(License.key == data.license_key)
+        select(License)
+        .where(License.key == data.license_key)
+        .options(selectinload(License.category))
+        .with_for_update()
     )
     license_obj = result.scalars().first()
     
-    if not license_obj:
+    category_matches = False
+    if license_obj and license_obj.category:
+        category_matches = (
+            license_obj.category.name.strip().lower() == data.category.strip().lower()
+            or str(license_obj.category.id).strip().lower() == data.category.strip().lower()
+        )
+    
+    if not license_obj or not category_matches:
         return ClientActivateResponse(
             status="invalid",
             license_key=data.license_key,
@@ -68,18 +81,17 @@ async def activate_license(
         )
 
     # 3. Check current activation list and device count
-    act_res = await db.execute(
-        select(LicenseActivation).where(LicenseActivation.license_id == license_obj.id)
+    existing_act = await db.scalar(
+        select(LicenseActivation).where(
+            LicenseActivation.license_id == license_obj.id,
+            LicenseActivation.device_id == data.device_id,
+        )
     )
-    activations = act_res.scalars().all()
-    active_devices = len(activations)
-
-    # Check if this device is already activated
-    existing_act = None
-    for act in activations:
-        if act.device_id == data.device_id:
-            existing_act = act
-            break
+    active_devices = await db.scalar(
+        select(func.count(LicenseActivation.id)).where(
+            LicenseActivation.license_id == license_obj.id
+        )
+    ) or 0
 
     if existing_act:
         # Device already registered: update checking time and return success
@@ -169,15 +181,24 @@ async def check_license(
     """
     Check the validity of a license key for a specific device.
     """
-    # 1. Retrieve the license key
+    # 1. Retrieve the license key and its category
     result = await db.execute(
-        select(License).where(License.key == data.license_key)
+        select(License)
+        .where(License.key == data.license_key)
+        .options(selectinload(License.category))
     )
     license_obj = result.scalars().first()
     
     now = now_vn()
 
-    if not license_obj:
+    category_matches = False
+    if license_obj and license_obj.category:
+        category_matches = (
+            license_obj.category.name.strip().lower() == data.category.strip().lower()
+            or str(license_obj.category.id).strip().lower() == data.category.strip().lower()
+        )
+
+    if not license_obj or not category_matches:
         return ClientCheckResponse(status="invalid", server_time=now)
         
     if license_obj.status == "revoked":

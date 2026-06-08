@@ -17,6 +17,7 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 1440
     INITIAL_ADMIN_USERNAME: str = "admin"
     INITIAL_ADMIN_PASSWORD: str = "admin_password_123"
+    PASSWORD_CHANGE_AUTH_CODE: str
     
     ALLOWED_ORIGINS: Union[List[str], str] = ["http://localhost:3000"]
 

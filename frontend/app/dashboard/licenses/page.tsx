@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { api } from "@/lib/api";
+import { api, ApiError } from "@/lib/api";
 import { 
   Key, 
   Search, 
@@ -11,13 +11,12 @@ import {
   Eye, 
   Plus, 
   X, 
-  Calendar, 
   Laptop, 
   ChevronLeft, 
   ChevronRight,
   AlertTriangle,
-  Clock,
-  Zap
+  CheckCircle2,
+  AlertCircle
 } from "lucide-react";
 
 interface License {
@@ -51,6 +50,26 @@ interface Activation {
   last_checked_at: string | null;
 }
 
+interface LicenseListResponse {
+  items: License[];
+  total: number;
+}
+
+
+function translateError(err: unknown): string {
+  const msg = err instanceof Error ? err.message : "";
+  if (err instanceof ApiError) {
+    return msg || `Máy chủ xử lý yêu cầu thất bại (HTTP ${err.status}).`;
+  }
+  if (msg === "Failed to fetch" || msg.toLowerCase().includes("failed to fetch")) {
+    return "Không thể kết nối đến máy chủ. Vui lòng kiểm tra backend đang chạy.";
+  }
+  if (msg.includes("NetworkError") || msg.toLowerCase().includes("network")) {
+    return "Lỗi mạng. Vui lòng kiểm tra kết nối.";
+  }
+  return msg || "Đã xảy ra lỗi không xác định.";
+}
+
 export default function LicensesPage() {
   const [licenses, setLicenses] = useState<License[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
@@ -69,6 +88,7 @@ export default function LicensesPage() {
   const [isRenewOpen, setIsRenewOpen] = useState(false);
   const [isDevicesOpen, setIsDevicesOpen] = useState(false);
   const [isRevokeOpen, setIsRevokeOpen] = useState(false);
+  const [isDeleteOpen, setIsDeleteOpen] = useState(false);
 
   // Focus Items State
   const [selectedLicense, setSelectedLicense] = useState<License | null>(null);
@@ -90,23 +110,21 @@ export default function LicensesPage() {
 
   // Form State (Revoke)
   const [submittingRevoke, setSubmittingRevoke] = useState(false);
+  const [submittingDelete, setSubmittingDelete] = useState(false);
 
-  // Form State (Activate)
-  const [isActivateOpen, setIsActivateOpen] = useState(false);
-  const [actLicenseKey, setActLicenseKey] = useState("");
-  const [actDeviceId, setActDeviceId] = useState("");
-  const [actDeviceName, setActDeviceName] = useState("");
-  const [actOsInfo, setActOsInfo] = useState("");
-  const [actAppVersion, setActAppVersion] = useState("");
-  const [submittingAct, setSubmittingAct] = useState(false);
 
   // General Notification alerts
   const [feedback, setFeedback] = useState<{ type: "success" | "error"; msg: string } | null>(null);
 
+  const showFeedback = (type: "success" | "error", msg: string) => {
+    setFeedback({ type, msg });
+    setTimeout(() => setFeedback(null), 7000);
+  };
+
   // Load Categories & Licenses
   async function loadCategories() {
     try {
-      const data = await api.get("/api/categories");
+      const data = await api.get<Category[]>("/api/categories");
       setCategories(data);
       if (data.length > 0 && !genCategoryId) {
         setGenCategoryId(data[0].id);
@@ -116,7 +134,7 @@ export default function LicensesPage() {
     }
   }
 
-  async function loadLicenses() {
+  async function loadLicenses(showError = true) {
     try {
       setLoading(true);
       const params = {
@@ -126,11 +144,13 @@ export default function LicensesPage() {
         category_id: selectedCategory || undefined,
         status: selectedStatus || undefined
       };
-      const data = await api.get("/api/licenses", params);
+      const data = await api.get<LicenseListResponse>("/api/licenses", params);
       setLicenses(data.items || []);
       setTotal(data.total || 0);
-    } catch (err: any) {
-      showFeedback("error", err.message || "Failed to load licenses.");
+    } catch (err: unknown) {
+      if (showError) {
+        showFeedback("error", translateError(err));
+      }
     } finally {
       setLoading(false);
     }
@@ -138,10 +158,14 @@ export default function LicensesPage() {
 
   useEffect(() => {
     loadCategories();
+    // Initial category load only.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
     loadLicenses();
+    // Query changes are represented by the dependencies below.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page, selectedCategory, selectedStatus]);
 
   // Handle Search submit
@@ -151,33 +175,34 @@ export default function LicensesPage() {
     loadLicenses();
   };
 
-  const showFeedback = (type: "success" | "error", msg: string) => {
-    setFeedback({ type, msg });
-    setTimeout(() => setFeedback(null), 5000);
-  };
-
   // Actions: Generate Keys
   const handleGenerate = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!genCategoryId) {
-      showFeedback("error", "Please select a Category first.");
+      showFeedback("error", "Vui lòng chọn Category trước.");
       return;
     }
     setSubmittingGen(true);
     try {
-      await api.post("/api/licenses", {
+      const requestedQuantity = Number(genQuantity);
+      const createdLicenses = await api.post<License[]>("/api/licenses", {
         quantity: Number(genQuantity),
         duration_type: genDurationType,
         duration_value: genDurationType === "lifetime" ? null : Number(genDurationValue),
         max_devices: Number(genMaxDevices),
         category_id: genCategoryId
       });
-      showFeedback("success", `Successfully generated ${genQuantity} license keys.`);
+
+      if (!Array.isArray(createdLicenses) || createdLicenses.length !== requestedQuantity) {
+        throw new Error("Máy chủ không xác nhận đủ số lượng license key đã yêu cầu.");
+      }
+
+      showFeedback("success", `Tạo thành công ${createdLicenses.length} license key!`);
       setIsGenerateOpen(false);
       setPage(1);
-      loadLicenses();
-    } catch (err: any) {
-      showFeedback("error", err.message || "Failed to generate licenses.");
+      await loadLicenses(false);
+    } catch (err: unknown) {
+      showFeedback("error", `Tạo license key thất bại: ${translateError(err)}`);
     } finally {
       setSubmittingGen(false);
     }
@@ -189,10 +214,10 @@ export default function LicensesPage() {
     setIsDevicesOpen(true);
     setLoadingActivations(true);
     try {
-      const data = await api.get(`/api/licenses/${license.id}/activations`);
+      const data = await api.get<Activation[]>(`/api/licenses/${license.id}/activations`);
       setActivations(data);
-    } catch (err: any) {
-      showFeedback("error", err.message || "Failed to load activations.");
+    } catch (err: unknown) {
+      showFeedback("error", translateError(err));
     } finally {
       setLoadingActivations(false);
     }
@@ -210,18 +235,22 @@ export default function LicensesPage() {
     e.preventDefault();
     if (!selectedLicense) return;
     setSubmittingRenew(true);
+    let success = false;
     try {
       await api.patch(`/api/licenses/${selectedLicense.id}/renew`, {
         duration_type: renewDurationType,
         duration_value: renewDurationType === "lifetime" ? null : Number(renewDurationValue)
       });
-      showFeedback("success", `License key renewed successfully.`);
-      setIsRenewOpen(false);
-      loadLicenses();
-    } catch (err: any) {
-      showFeedback("error", err.message || "Failed to renew license.");
+      success = true;
+    } catch (err: unknown) {
+      showFeedback("error", translateError(err));
     } finally {
       setSubmittingRenew(false);
+    }
+    if (success) {
+      showFeedback("success", "✅ Gia hạn license key thành công!");
+      setIsRenewOpen(false);
+      try { await loadLicenses(); } catch { /* ignore */ }
     }
   };
 
@@ -234,62 +263,47 @@ export default function LicensesPage() {
   const handleRevokeSubmit = async () => {
     if (!selectedLicense) return;
     setSubmittingRevoke(true);
+    let success = false;
     try {
       await api.delete(`/api/licenses/${selectedLicense.id}`);
-      showFeedback("success", "License key revoked successfully.");
-      setIsRevokeOpen(false);
-      loadLicenses();
-    } catch (err: any) {
-      showFeedback("error", err.message || "Failed to revoke license.");
+      success = true;
+    } catch (err: unknown) {
+      showFeedback("error", translateError(err));
     } finally {
       setSubmittingRevoke(false);
     }
+    if (success) {
+      showFeedback("success", "✅ Đã thu hồi license key thành công!");
+      setIsRevokeOpen(false);
+      try { await loadLicenses(); } catch { /* ignore */ }
+    }
   };
 
-  const handleActivateClick = (license: License | null) => {
-    if (license) {
-      setActLicenseKey(license.key);
-    } else {
-      setActLicenseKey("");
-    }
-    // Pre-generate a random Device ID for testing/ease of use
-    const randomId = `device-${Math.random().toString(36).substring(2, 10).toUpperCase()}`;
-    setActDeviceId(randomId);
-    setActDeviceName("Admin PC Device");
-    setActOsInfo("Windows 11 (Admin Dashboard)");
-    setActAppVersion("1.0.0");
-    setIsActivateOpen(true);
+  const handleDeleteClick = (license: License) => {
+    setSelectedLicense(license);
+    setIsDeleteOpen(true);
   };
 
-  const handleActivateSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!actLicenseKey.trim() || !actDeviceId.trim()) {
-      showFeedback("error", "License Key and Device ID are required.");
-      return;
-    }
-    setSubmittingAct(true);
+  const handleDeleteSubmit = async () => {
+    if (!selectedLicense || selectedLicense.status !== "revoked") return;
+    setSubmittingDelete(true);
     try {
-      const res = await api.post("/api/activation/activate", {
-        license_key: actLicenseKey.trim(),
-        device_id: actDeviceId.trim(),
-        device_name: actDeviceName.trim() || undefined,
-        os_info: actOsInfo.trim() || undefined,
-        app_version: actAppVersion.trim() || undefined
-      });
-
-      if (res && (res.status === "valid" || res.status === "active")) {
-        showFeedback("success", `License key activated successfully on device ${actDeviceId}.`);
-        setIsActivateOpen(false);
-        loadLicenses();
+      await api.delete(`/api/licenses/${selectedLicense.id}/permanent`);
+      showFeedback("success", "Đã xóa vĩnh viễn license key khỏi danh sách!");
+      setIsDeleteOpen(false);
+      setSelectedLicense(null);
+      if (licenses.length === 1 && page > 1) {
+        setPage((currentPage) => currentPage - 1);
       } else {
-        showFeedback("error", `Activation status: ${res?.status || "failed"}`);
+        await loadLicenses(false);
       }
-    } catch (err: any) {
-      showFeedback("error", err.message || "Failed to activate license.");
+    } catch (err: unknown) {
+      showFeedback("error", `Xóa license key thất bại: ${translateError(err)}`);
     } finally {
-      setSubmittingAct(false);
+      setSubmittingDelete(false);
     }
   };
+
 
   const totalPages = Math.ceil(total / pageSize) || 1;
 
@@ -297,10 +311,14 @@ export default function LicensesPage() {
     <div className="space-y-6">
       {/* Feedback banner */}
       {feedback && (
-        <div className={`fixed top-4 right-4 z-50 flex items-start gap-2.5 p-4 rounded-xl border shadow-xl max-w-md animate-in slide-in-from-top-4 duration-300
+        <div className={`fixed top-4 right-4 z-[9999] flex items-start gap-2.5 p-4 rounded-xl border shadow-xl max-w-md animate-in slide-in-from-top-4 duration-300
           ${feedback.type === "success" ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-400" : "bg-rose-500/10 border-rose-500/20 text-rose-400"}`}
         >
-          <AlertTriangle className="w-5 h-5 shrink-0" />
+          {feedback.type === "success" ? (
+            <CheckCircle2 className="w-5 h-5 shrink-0" />
+          ) : (
+            <AlertCircle className="w-5 h-5 shrink-0" />
+          )}
           <span className="text-sm font-semibold">{feedback.msg}</span>
         </div>
       )}
@@ -312,13 +330,6 @@ export default function LicensesPage() {
           <p className="text-slate-400 text-sm mt-1">Review active clients, renew subscriptions, and generate new keys.</p>
         </div>
         <div className="flex items-center gap-3">
-          <button
-            onClick={() => handleActivateClick(null)}
-            className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 active:scale-[0.98] text-white text-xs font-semibold rounded-xl transition-all flex items-center justify-center gap-1.5 shadow-lg shadow-emerald-600/10"
-          >
-            <Zap className="w-4.5 h-4.5" />
-            <span>Activate Key</span>
-          </button>
           <button
             onClick={() => setIsGenerateOpen(true)}
             className="px-4 py-2.5 bg-blue-600 hover:bg-blue-500 active:scale-[0.98] text-white text-xs font-semibold rounded-xl transition-all flex items-center justify-center gap-1.5 shadow-lg shadow-blue-600/10"
@@ -373,6 +384,7 @@ export default function LicensesPage() {
               <option value="new">New</option>
               <option value="active">Active</option>
               <option value="expired">Expired</option>
+              <option value="lifetime">Lifetime</option>
               <option value="revoked">Revoked</option>
             </select>
           </div>
@@ -390,25 +402,31 @@ export default function LicensesPage() {
         ) : licenses.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-20 text-slate-500 gap-2 border border-dashed border-slate-800/50 rounded-2xl m-4">
             <Key className="w-10 h-10 opacity-30 text-slate-400" />
-            <span className="text-xs">No license keys found. Modify filters or click "Generate Keys".</span>
+            <span className="text-xs">No license keys found. Modify filters or click &quot;Generate Keys&quot;.</span>
           </div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-left text-sm border-collapse">
               <thead>
                 <tr className="border-b border-slate-800 text-slate-400 text-xs font-semibold uppercase tracking-wider bg-slate-950/20">
+                  <th className="p-4">STT</th>
                   <th className="p-4">License Key</th>
                   <th className="p-4">Category</th>
                   <th className="p-4">Devices</th>
                   <th className="p-4">Duration</th>
+                  <th className="p-4">Created</th>
+                  <th className="p-4">Activated</th>
                   <th className="p-4">Expiration</th>
                   <th className="p-4">Status</th>
                   <th className="p-4 text-right">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800/50">
-                {licenses.map((lic) => (
+                {licenses.map((lic, index) => (
                   <tr key={lic.id} className="hover:bg-slate-800/10 transition-colors">
+                    <td className="p-4 text-xs text-slate-500 font-mono">
+                      {(page - 1) * pageSize + index + 1}
+                    </td>
                     <td className="p-4 font-mono font-bold text-slate-200 select-all">{lic.key}</td>
                     <td className="p-4 text-xs text-slate-400">{lic.category_name || "N/A"}</td>
                     <td className="p-4">
@@ -428,8 +446,18 @@ export default function LicensesPage() {
                         <span>{lic.duration_value} {lic.duration_type}</span>
                       )}
                     </td>
+                    <td className="p-4 text-xs text-slate-500 font-mono whitespace-nowrap">
+                      {new Date(lic.created_at).toLocaleString("vi-VN")}
+                    </td>
+                    <td className="p-4 text-xs text-slate-500 font-mono whitespace-nowrap">
+                      {lic.activated_at ? new Date(lic.activated_at).toLocaleString("vi-VN") : (
+                        <span className="text-slate-600 italic">Not activated</span>
+                      )}
+                    </td>
                     <td className="p-4 text-xs text-slate-500 font-mono">
-                      {lic.expires_at ? (
+                      {lic.is_lifetime ? (
+                        <span className="text-blue-400 font-medium">Lifetime</span>
+                      ) : lic.expires_at ? (
                         new Date(lic.expires_at).toLocaleString("vi-VN")
                       ) : (
                         <span className="text-slate-600 italic">Not activated</span>
@@ -454,15 +482,6 @@ export default function LicensesPage() {
                         >
                           <Eye className="w-4 h-4" />
                         </button>
-                        {lic.status !== "revoked" && lic.status !== "expired" && lic.devices_count < lic.max_devices && (
-                          <button
-                            onClick={() => handleActivateClick(lic)}
-                            className="p-1.5 hover:bg-slate-800 text-slate-400 hover:text-emerald-400 rounded-lg transition-colors"
-                            title="Activate Key on Device"
-                          >
-                            <Zap className="w-4 h-4" />
-                          </button>
-                        )}
                         {lic.status !== "revoked" && (
                           <>
                             <button
@@ -480,6 +499,15 @@ export default function LicensesPage() {
                               <Trash2 className="w-4 h-4" />
                             </button>
                           </>
+                        )}
+                        {lic.status === "revoked" && (
+                          <button
+                            onClick={() => handleDeleteClick(lic)}
+                            className="p-1.5 hover:bg-rose-500/10 text-slate-500 hover:text-rose-400 rounded-lg transition-colors"
+                            title="Xóa vĩnh viễn khỏi danh sách"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
                         )}
                       </div>
                     </td>
@@ -832,117 +860,55 @@ export default function LicensesPage() {
         </div>
       )}
 
-      {/* MODAL: Manual Activate Key */}
-      {isActivateOpen && (
+      {/* MODAL: Confirm Permanent Delete */}
+      {isDeleteOpen && selectedLicense && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-in fade-in duration-200">
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-lg shadow-2xl relative">
+          <div className="bg-slate-900 border border-rose-500/20 rounded-2xl w-full max-w-md shadow-2xl relative">
             <div className="h-14 flex items-center justify-between px-6 border-b border-slate-800/80">
-              <div className="flex items-center gap-2">
-                <div className="p-1 bg-emerald-500/10 text-emerald-400 rounded-lg">
-                  <Zap className="w-4 h-4" />
-                </div>
-                <h3 className="text-base font-bold text-slate-100">Activate License Key</h3>
-              </div>
-              <button 
-                onClick={() => setIsActivateOpen(false)}
+              <h3 className="text-base font-bold text-slate-100">Xóa License Key</h3>
+              <button
+                onClick={() => setIsDeleteOpen(false)}
                 className="text-slate-400 hover:text-slate-200 transition-colors"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
-            <form onSubmit={handleActivateSubmit} className="p-6 space-y-4">
-              <div>
-                <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">
-                  License Key
-                </label>
-                <input
-                  type="text"
-                  required
-                  placeholder="Enter or paste license key (e.g. XXXX-XXXX-XXXX-XXXX)"
-                  value={actLicenseKey}
-                  onChange={(e) => setActLicenseKey(e.target.value)}
-                  className="block w-full px-4 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-slate-100 placeholder-slate-600 focus:outline-none text-xs font-mono font-bold"
-                />
+            <div className="p-6 space-y-4">
+              <div className="flex items-start gap-3 p-4 bg-rose-500/10 border border-rose-500/20 text-rose-400 rounded-xl">
+                <AlertTriangle className="w-6 h-6 shrink-0 mt-0.5" />
+                <p className="text-xs leading-relaxed">
+                  License key này sẽ bị xóa vĩnh viễn khỏi danh sách và không thể khôi phục.
+                </p>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-1">
-                    <span>Device ID</span>
-                    <span className="text-rose-500">*</span>
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="e.g. device-unique-uuid"
-                    value={actDeviceId}
-                    onChange={(e) => setActDeviceId(e.target.value)}
-                    className="block w-full px-4 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-slate-100 placeholder-slate-600 focus:outline-none text-xs font-mono"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">
-                    Device Name
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="e.g. Workstation PC"
-                    value={actDeviceName}
-                    onChange={(e) => setActDeviceName(e.target.value)}
-                    className="block w-full px-4 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-slate-100 placeholder-slate-600 focus:outline-none text-xs"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">
-                    Operating System
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="e.g. Windows 11"
-                    value={actOsInfo}
-                    onChange={(e) => setActOsInfo(e.target.value)}
-                    className="block w-full px-4 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-slate-100 placeholder-slate-600 focus:outline-none text-xs"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">
-                    App Version
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="e.g. 1.0.0"
-                    value={actAppVersion}
-                    onChange={(e) => setActAppVersion(e.target.value)}
-                    className="block w-full px-4 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-slate-100 placeholder-slate-600 focus:outline-none text-xs"
-                  />
-                </div>
+              <div className="p-3.5 bg-slate-950 border border-slate-850 rounded-xl space-y-1">
+                <span className="text-[10px] font-bold text-slate-500 uppercase">License Key</span>
+                <div className="font-mono font-bold text-sm text-slate-300 select-all">{selectedLicense.key}</div>
               </div>
 
               <div className="flex gap-3 justify-end pt-4 border-t border-slate-800/80">
                 <button
                   type="button"
-                  onClick={() => setIsActivateOpen(false)}
+                  onClick={() => setIsDeleteOpen(false)}
                   className="px-4 py-2 border border-slate-800 text-slate-300 hover:bg-slate-800 rounded-xl text-xs font-semibold transition-colors"
                 >
-                  Cancel
+                  Hủy
                 </button>
                 <button
-                  type="submit"
-                  disabled={submittingAct}
-                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-xs font-semibold rounded-xl transition-all shadow-md shadow-emerald-600/10 flex items-center gap-1.5"
+                  type="button"
+                  onClick={handleDeleteSubmit}
+                  disabled={submittingDelete}
+                  className="px-4 py-2 bg-rose-600 hover:bg-rose-500 disabled:opacity-50 text-white text-xs font-semibold rounded-xl transition-all"
                 >
-                  {submittingAct ? "Activating..." : "Activate Now"}
+                  {submittingDelete ? "Đang xóa..." : "Xóa vĩnh viễn"}
                 </button>
               </div>
-            </form>
+            </div>
           </div>
         </div>
       )}
+
+
     </div>
   );
 }

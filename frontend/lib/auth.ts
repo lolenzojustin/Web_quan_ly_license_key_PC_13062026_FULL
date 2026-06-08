@@ -14,7 +14,22 @@ export function removeAccessToken(): void {
 }
 
 export function isAuthenticated(): boolean {
-  return !!getAccessToken();
+  const token = getAccessToken();
+  if (!token) return false;
+
+  try {
+    const encodedPayload = token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/");
+    const paddedPayload = encodedPayload.padEnd(Math.ceil(encodedPayload.length / 4) * 4, "=");
+    const payload = JSON.parse(atob(paddedPayload)) as { exp?: number };
+    if (typeof payload.exp !== "number" || payload.exp <= Date.now() / 1000) {
+      removeAccessToken();
+      return false;
+    }
+    return true;
+  } catch {
+    removeAccessToken();
+    return false;
+  }
 }
 
 export function logout(): void {

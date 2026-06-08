@@ -7,7 +7,7 @@ from app.db.init_db import setup_database
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup database checks, creation, migrations, and seed
+    # Startup database creation, migrations, and admin seed.
     await setup_database()
     yield
 

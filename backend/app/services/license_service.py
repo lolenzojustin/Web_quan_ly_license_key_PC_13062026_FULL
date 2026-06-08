@@ -1,11 +1,10 @@
-import random
+import secrets
 import string
 import uuid
-from datetime import datetime, timedelta
+from datetime import timedelta
 from typing import List, Optional, Tuple
 from sqlalchemy import select, update, func
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
 
 from app.core.timezone import now_vn, to_vn_tz
 from app.models.license import License
@@ -15,7 +14,8 @@ from app.schemas.license import LicenseCreate, LicenseRenew
 
 def generate_key_chunk() -> str:
     """Generate a 4-character uppercase alphanumeric chunk."""
-    return "".join(random.choices(string.ascii_uppercase + string.digits, k=4))
+    alphabet = string.ascii_uppercase + string.digits
+    return "".join(secrets.choice(alphabet) for _ in range(4))
 
 def generate_license_key() -> str:
     """Generate a 16-character license key formatted as XXXX-XXXX-XXXX-XXXX."""
@@ -55,10 +55,14 @@ async def create_licenses(db: AsyncSession, data: LicenseCreate) -> List[License
         raise ValueError("Category not found")
 
     licenses = []
+    generated_keys: set[str] = set()
     is_lifetime = data.duration_type == "lifetime"
 
     for _ in range(data.quantity):
         key = await generate_unique_key(db)
+        while key in generated_keys:
+            key = await generate_unique_key(db)
+        generated_keys.add(key)
         license_obj = License(
             key=key,
             category_id=data.category_id,
@@ -111,7 +115,10 @@ async def get_licenses_list(
     if category_id:
         query = query.where(License.category_id == category_id)
     if status:
-        query = query.where(License.status == status)
+        if status == "lifetime":
+            query = query.where(License.is_lifetime.is_(True))
+        else:
+            query = query.where(License.status == status)
 
     # Order by newest
     query = query.order_by(License.created_at.desc())
@@ -223,3 +230,17 @@ async def revoke_license(db: AsyncSession, license_id: uuid.UUID) -> License:
     await db.commit()
     await db.refresh(license_obj)
     return license_obj
+
+async def delete_revoked_license(db: AsyncSession, license_id: uuid.UUID) -> None:
+    """Permanently delete a revoked license key."""
+    result = await db.execute(
+        select(License).where(License.id == license_id)
+    )
+    license_obj = result.scalars().first()
+    if not license_obj:
+        raise ValueError("License key not found")
+    if license_obj.status != "revoked":
+        raise ValueError("Only revoked license keys can be permanently deleted")
+
+    await db.delete(license_obj)
+    await db.commit()

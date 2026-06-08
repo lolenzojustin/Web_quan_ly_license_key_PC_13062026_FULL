@@ -1,10 +1,12 @@
 import asyncio
 import asyncpg
+from pathlib import Path
+from alembic import command
+from alembic.config import Config
 from sqlalchemy.future import select
 
 from app.core.config import settings
-from app.db.base import Base
-from app.db.session import engine, AsyncSessionLocal
+from app.db.session import AsyncSessionLocal
 from app.core.security import get_password_hash
 from app.models.admin import Admin
 
@@ -44,12 +46,11 @@ async def check_and_create_db() -> None:
     except Exception as e:
         print(f"Warning during database check/creation: {e}")
 
-async def init_tables() -> None:
-    """Create all database tables using SQLAlchemy Base metadata."""
-    print("Creating tables if they do not exist...")
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    print("Tables verified/created successfully.")
+async def run_migrations() -> None:
+    """Upgrade the configured database to the latest Alembic revision."""
+    alembic_ini = Path(__file__).resolve().parents[2] / "alembic.ini"
+    alembic_config = Config(str(alembic_ini))
+    await asyncio.to_thread(command.upgrade, alembic_config, "head")
 
 async def seed_admin() -> None:
     """Seed the default admin account if it does not already exist."""
@@ -75,5 +76,5 @@ async def seed_admin() -> None:
 async def setup_database() -> None:
     """Perform full database setup sequence: check DB, create tables, and seed admin."""
     await check_and_create_db()
-    await init_tables()
+    await run_migrations()
     await seed_admin()

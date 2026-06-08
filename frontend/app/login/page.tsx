@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { api } from "@/lib/api";
+import { api, getErrorMessage } from "@/lib/api";
 import { setAccessToken, isAuthenticated } from "@/lib/auth";
 import { KeyRound, User, Lock, AlertCircle, Eye, EyeOff } from "lucide-react";
 
@@ -27,7 +27,7 @@ export default function LoginPage() {
     setLoading(true);
 
     try {
-      const response = await api.post("/api/auth/login", {
+      const response = await api.post<{ access_token: string }>("/api/auth/login", {
         username,
         password,
       });
@@ -38,8 +38,8 @@ export default function LoginPage() {
       } else {
         setError("Invalid server response. Please try again.");
       }
-    } catch (err: any) {
-      setError(err.message || "Failed to log in. Please check your credentials.");
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, "Failed to log in. Please check your credentials."));
     } finally {
       setLoading(false);
     }
@@ -101,6 +101,7 @@ export default function LoginPage() {
                   id="password"
                   type={showPassword ? "text" : "password"}
                   required
+                  maxLength={72}
                   placeholder="••••••••"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}

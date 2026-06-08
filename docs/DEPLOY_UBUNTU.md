@@ -98,7 +98,8 @@ SECRET_KEY=sua_chuoi_hex_ngau_nhien_tai_day_de_bao_mat_tot_nhat
 ACCESS_TOKEN_EXPIRE_MINUTES=1440
 INITIAL_ADMIN_USERNAME=admin
 INITIAL_ADMIN_PASSWORD=admin_password_changed
-ALLOWED_ORIGINS=["*"]
+PASSWORD_CHANGE_AUTH_CODE=replace_with_a_separate_strong_secret
+ALLOWED_ORIGINS=["https://yourdomain.com"]
 ```
 
 ### Chạy Database Migrations và Seed Admin mặc định

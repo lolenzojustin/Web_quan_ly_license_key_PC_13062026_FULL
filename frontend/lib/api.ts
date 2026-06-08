@@ -6,16 +6,20 @@ interface RequestOptions extends RequestInit {
 
 export class ApiError extends Error {
   status: number;
-  info: any;
+  info: unknown;
 
-  constructor(message: string, status: number, info?: any) {
+  constructor(message: string, status: number, info?: unknown) {
     super(message);
     this.status = status;
     this.info = info;
   }
 }
 
-async function request(path: string, options: RequestOptions = {}) {
+export function getErrorMessage(error: unknown, fallback: string): string {
+  return error instanceof Error && error.message ? error.message : fallback;
+}
+
+async function request<T = unknown>(path: string, options: RequestOptions = {}): Promise<T> {
   const url = new URL(`${BASE_URL}${path}`);
   
   if (options.params) {
@@ -46,7 +50,7 @@ async function request(path: string, options: RequestOptions = {}) {
   });
 
   if (!response.ok) {
-    let errInfo = null;
+    let errInfo: { detail?: string } | null = null;
     try {
       errInfo = await response.json();
     } catch {
@@ -62,26 +66,30 @@ async function request(path: string, options: RequestOptions = {}) {
     }
 
     throw new ApiError(
-      errInfo?.detail || "An error occurred while fetching the data.",
+      errInfo?.detail || `Máy chủ xử lý yêu cầu thất bại (HTTP ${response.status}).`,
       response.status,
       errInfo
     );
   }
 
+  if (response.status === 204) {
+    return undefined as T;
+  }
+
   try {
-    return await response.json();
+    return await response.json() as T;
   } catch {
-    return null;
+    throw new ApiError("Máy chủ trả về dữ liệu không hợp lệ.", response.status);
   }
 }
 
 export const api = {
-  get: (path: string, params?: Record<string, any>, options?: RequestInit) =>
-    request(path, { method: "GET", params, ...options }),
-  post: (path: string, body?: any, options?: RequestInit) =>
-    request(path, { method: "POST", body: body ? JSON.stringify(body) : undefined, ...options }),
-  patch: (path: string, body?: any, options?: RequestInit) =>
-    request(path, { method: "PATCH", body: body ? JSON.stringify(body) : undefined, ...options }),
-  delete: (path: string, options?: RequestInit) =>
-    request(path, { method: "DELETE", ...options }),
+  get: <T = unknown>(path: string, params?: Record<string, string | number | undefined>, options?: RequestInit) =>
+    request<T>(path, { method: "GET", params, ...options }),
+  post: <T = unknown>(path: string, body?: unknown, options?: RequestInit) =>
+    request<T>(path, { method: "POST", body: body !== undefined ? JSON.stringify(body) : undefined, ...options }),
+  patch: <T = unknown>(path: string, body?: unknown, options?: RequestInit) =>
+    request<T>(path, { method: "PATCH", body: body !== undefined ? JSON.stringify(body) : undefined, ...options }),
+  delete: <T = unknown>(path: string, options?: RequestInit) =>
+    request<T>(path, { method: "DELETE", ...options }),
 };

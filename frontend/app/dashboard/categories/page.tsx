@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { api } from "@/lib/api";
-import { FolderKanban, Plus, FileText, Calendar, AlertCircle } from "lucide-react";
+import { api, getErrorMessage } from "@/lib/api";
+import { FolderKanban, Plus, AlertCircle } from "lucide-react";
 
 interface Category {
   id: string;
@@ -23,10 +23,10 @@ export default function CategoriesPage() {
   async function loadCategories() {
     try {
       setLoading(true);
-      const data = await api.get("/api/categories");
+      const data = await api.get<Category[]>("/api/categories");
       setCategories(data);
-    } catch (err: any) {
-      setError(err.message || "Failed to load categories.");
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, "Failed to load categories."));
     } finally {
       setLoading(false);
     }
@@ -51,10 +51,10 @@ export default function CategoriesPage() {
       setName("");
       setDescription("");
       // Reload categories list
-      const data = await api.get("/api/categories");
+      const data = await api.get<Category[]>("/api/categories");
       setCategories(data);
-    } catch (err: any) {
-      setError(err.message || "Failed to create category.");
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, "Failed to create category."));
     } finally {
       setSubmitting(false);
     }

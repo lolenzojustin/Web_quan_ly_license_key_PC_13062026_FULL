@@ -3,6 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
 from app.api import deps
+from app.core.config import settings
 from app.core.security import verify_password, get_password_hash, create_access_token
 from app.models.admin import Admin
 from app.schemas.auth import Token, LoginSchema, ChangePasswordSchema
@@ -22,10 +23,11 @@ async def login(
     
     if not admin or not verify_password(data.password, admin.password_hash):
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Incorrect username or password"
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect username or password",
+            headers={"WWW-Authenticate": "Bearer"},
         )
-        
+
     # Subject of the JWT is the admin UUID
     access_token = create_access_token(subject=str(admin.id))
     return Token(access_token=access_token)
@@ -36,7 +38,12 @@ async def change_password(
     current_admin: Admin = Depends(deps.get_current_admin),
     db: AsyncSession = Depends(deps.get_db)
 ):
-    """Change current admin's password."""
+    if data.auth_code != settings.PASSWORD_CHANGE_AUTH_CODE:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Incorrect password change authorization code"
+        )
+
     if not verify_password(data.old_password, current_admin.password_hash):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
