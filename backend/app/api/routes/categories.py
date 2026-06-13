@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, status
+import uuid as uuid_mod
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.future import select
@@ -7,7 +8,7 @@ from typing import List
 from app.api import deps
 from app.models.category import Category
 from app.models.admin import Admin
-from app.schemas.category import CategoryCreate, CategoryOut
+from app.schemas.category import CategoryCreate, CategoryOut, CategoryUpdateVersion
 
 router = APIRouter()
 
@@ -54,5 +55,29 @@ async def create_category(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Category with this name already exists"
         )
+    await db.refresh(category)
+    return category
+
+@router.patch("/{category_id}/version", response_model=CategoryOut)
+async def update_category_version(
+    category_id: uuid_mod.UUID,
+    data: CategoryUpdateVersion,
+    db: AsyncSession = Depends(deps.get_db),
+    current_admin: Admin = Depends(deps.get_current_admin)
+):
+    """Update version and update_url for a category."""
+    result = await db.execute(
+        select(Category).filter_by(id=category_id)
+    )
+    category = result.scalars().first()
+    if not category:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Category not found"
+        )
+
+    category.version = data.version
+    category.update_url = data.update_url
+    await db.commit()
     await db.refresh(category)
     return category

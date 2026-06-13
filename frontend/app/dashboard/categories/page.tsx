@@ -2,12 +2,14 @@
 
 import { useEffect, useState } from "react";
 import { api, getErrorMessage } from "@/lib/api";
-import { FolderKanban, Plus, AlertCircle } from "lucide-react";
+import { FolderKanban, Plus, AlertCircle, Pencil, X, ExternalLink } from "lucide-react";
 
 interface Category {
   id: string;
   name: string;
   description: string | null;
+  version: string | null;
+  update_url: string | null;
   created_at: string;
 }
 
@@ -19,6 +21,13 @@ export default function CategoriesPage() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+
+  // Modal state
+  const [editingCategory, setEditingCategory] = useState<Category | null>(null);
+  const [editVersion, setEditVersion] = useState("");
+  const [editUpdateUrl, setEditUpdateUrl] = useState("");
+  const [editSubmitting, setEditSubmitting] = useState(false);
+  const [editError, setEditError] = useState("");
 
   async function loadCategories() {
     try {
@@ -57,6 +66,42 @@ export default function CategoriesPage() {
       setError(getErrorMessage(err, "Failed to create category."));
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const openEditModal = (cat: Category) => {
+    setEditingCategory(cat);
+    setEditVersion(cat.version || "");
+    setEditUpdateUrl(cat.update_url || "");
+    setEditError("");
+  };
+
+  const closeEditModal = () => {
+    setEditingCategory(null);
+    setEditVersion("");
+    setEditUpdateUrl("");
+    setEditError("");
+  };
+
+  const handleEditSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingCategory) return;
+    setEditError("");
+    setEditSubmitting(true);
+
+    try {
+      await api.patch(`/api/categories/${editingCategory.id}/version`, {
+        version: editVersion,
+        update_url: editUpdateUrl || null,
+      });
+      // Reload categories list
+      const data = await api.get<Category[]>("/api/categories");
+      setCategories(data);
+      closeEditModal();
+    } catch (err: unknown) {
+      setEditError(getErrorMessage(err, "Failed to update version."));
+    } finally {
+      setEditSubmitting(false);
     }
   };
 
@@ -167,12 +212,14 @@ export default function CategoriesPage() {
                   <tr className="border-b border-slate-800 text-slate-400 text-xs font-semibold uppercase tracking-wider">
                     <th className="pb-3 font-semibold">Category Name</th>
                     <th className="pb-3 font-semibold">Description</th>
+                    <th className="pb-3 font-semibold">Version</th>
                     <th className="pb-3 font-semibold">Created Date</th>
+                    <th className="pb-3 font-semibold text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-800/50">
                   {categories.map((cat) => (
-                    <tr key={cat.id} className="hover:bg-slate-800/10 transition-colors">
+                    <tr key={cat.id} className="hover:bg-slate-800/10 transition-colors group">
                       <td className="py-4 font-semibold text-slate-200 flex items-center gap-2">
                         <span className="w-2.5 h-2.5 rounded-full bg-blue-500/20 border border-blue-500/50 shrink-0" />
                         <span>{cat.name}</span>
@@ -180,8 +227,40 @@ export default function CategoriesPage() {
                       <td className="py-4 text-slate-400 text-xs max-w-xs truncate" title={cat.description || ""}>
                         {cat.description || <span className="italic text-slate-600">No description</span>}
                       </td>
+                      <td className="py-4">
+                        {cat.version ? (
+                          <div className="flex items-center gap-1.5">
+                            <span className="inline-flex items-center px-2.5 py-1 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-mono font-semibold">
+                              v{cat.version}
+                            </span>
+                            {cat.update_url && (
+                              <a
+                                href={cat.update_url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                title={cat.update_url}
+                                className="text-blue-400 hover:text-blue-300 transition-colors"
+                              >
+                                <ExternalLink className="w-3.5 h-3.5" />
+                              </a>
+                            )}
+                          </div>
+                        ) : (
+                          <span className="text-slate-600 text-xs italic">—</span>
+                        )}
+                      </td>
                       <td className="py-4 text-slate-500 text-xs font-mono">
                         {new Date(cat.created_at).toLocaleDateString("vi-VN")}
+                      </td>
+                      <td className="py-4 text-right">
+                        <button
+                          onClick={() => openEditModal(cat)}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-300 bg-slate-800 hover:bg-slate-700 border border-slate-700 hover:border-slate-600 rounded-lg transition-all opacity-60 group-hover:opacity-100"
+                          title="Edit version & update URL"
+                        >
+                          <Pencil className="w-3.5 h-3.5" />
+                          <span>Edit</span>
+                        </button>
                       </td>
                     </tr>
                   ))}
@@ -191,6 +270,104 @@ export default function CategoriesPage() {
           )}
         </div>
       </div>
+
+      {/* Edit Version Modal */}
+      {editingCategory && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          {/* Backdrop */}
+          <div
+            className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+            onClick={closeEditModal}
+          />
+
+          {/* Modal */}
+          <div className="relative w-full max-w-md mx-4 bg-slate-900 border border-slate-700/80 rounded-2xl shadow-2xl animate-in fade-in zoom-in-95 duration-200">
+            {/* Header */}
+            <div className="flex items-center justify-between p-6 pb-0">
+              <div>
+                <h3 className="text-lg font-bold text-slate-100">Edit Version</h3>
+                <p className="text-xs text-slate-400 mt-1">
+                  Update version & download URL for <span className="font-semibold text-slate-300">{editingCategory.name}</span>
+                </p>
+              </div>
+              <button
+                onClick={closeEditModal}
+                className="p-1.5 text-slate-400 hover:text-slate-200 hover:bg-slate-800 rounded-lg transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Body */}
+            <form onSubmit={handleEditSubmit} className="p-6 space-y-5">
+              {editError && (
+                <div className="flex items-start gap-2.5 p-3 bg-rose-500/10 border border-rose-500/20 rounded-xl text-rose-400 text-xs">
+                  <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                  <span>{editError}</span>
+                </div>
+              )}
+
+              <div>
+                <label htmlFor="edit-version" className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">
+                  Version
+                </label>
+                <input
+                  id="edit-version"
+                  type="text"
+                  required
+                  placeholder="e.g. 1.0.0"
+                  value={editVersion}
+                  onChange={(e) => setEditVersion(e.target.value)}
+                  className="block w-full px-4 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-slate-100 placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-blue-600 focus:border-transparent transition-all text-sm font-mono"
+                />
+              </div>
+
+              <div>
+                <label htmlFor="edit-url" className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">
+                  Update URL
+                </label>
+                <input
+                  id="edit-url"
+                  type="url"
+                  placeholder="https://example.com/download/tool-v1.0.0.zip"
+                  value={editUpdateUrl}
+                  onChange={(e) => setEditUpdateUrl(e.target.value)}
+                  className="block w-full px-4 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-slate-100 placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-blue-600 focus:border-transparent transition-all text-sm"
+                />
+                <p className="text-xs text-slate-500 mt-1.5">Link download cho phiên bản này (tùy chọn)</p>
+              </div>
+
+              {/* Footer buttons */}
+              <div className="flex items-center justify-end gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={closeEditModal}
+                  className="px-4 py-2 text-xs font-medium text-slate-400 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-xl transition-all"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={editSubmitting || !editVersion.trim()}
+                  className="px-5 py-2 bg-blue-600 hover:bg-blue-500 active:scale-[0.98] disabled:opacity-50 text-white text-xs font-semibold rounded-xl transition-all flex items-center gap-2"
+                >
+                  {editSubmitting ? (
+                    <>
+                      <svg className="animate-spin h-3.5 w-3.5 text-white" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                      </svg>
+                      <span>Saving...</span>
+                    </>
+                  ) : (
+                    <span>Save Changes</span>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
