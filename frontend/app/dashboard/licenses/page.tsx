@@ -96,7 +96,7 @@ export default function LicensesPage() {
   const [loadingActivations, setLoadingActivations] = useState(false);
 
   // Form State (Generate)
-  const [genQuantity, setGenQuantity] = useState(10);
+  const [genQuantity, setGenQuantity] = useState(1);
   const [genCategoryId, setGenCategoryId] = useState("");
   const [genDurationType, setGenDurationType] = useState("months");
   const [genDurationValue, setGenDurationValue] = useState(1);
