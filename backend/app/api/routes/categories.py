@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Query
 import uuid as uuid_mod
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import IntegrityError
@@ -8,7 +8,9 @@ from typing import List
 from app.api import deps
 from app.models.category import Category
 from app.models.admin import Admin
+from app.models.license import License
 from app.schemas.category import CategoryCreate, CategoryOut, CategoryUpdateVersion
+from app.core.config import settings
 
 router = APIRouter()
 
@@ -81,3 +83,50 @@ async def update_category_version(
     await db.commit()
     await db.refresh(category)
     return category
+
+@router.delete("/{category_id}")
+async def delete_category(
+    category_id: uuid_mod.UUID,
+    auth_code: str = Query(..., description="Security Code / Password Change Code"),
+    db: AsyncSession = Depends(deps.get_db),
+    current_admin: Admin = Depends(deps.get_current_admin)
+):
+    """Delete a category. Requires current PASSWORD_CHANGE_AUTH_CODE."""
+    if auth_code != settings.PASSWORD_CHANGE_AUTH_CODE:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Incorrect security code / password change authorization code"
+        )
+    
+    result = await db.execute(
+        select(Category).filter_by(id=category_id)
+    )
+    category = result.scalars().first()
+    if not category:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Category not found"
+        )
+        
+    # Check if category has any licenses
+    license_check = await db.execute(
+        select(License).filter_by(category_id=category_id).limit(1)
+    )
+    if license_check.scalars().first():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot delete category because it has associated license keys. Delete or reassign the keys first."
+        )
+        
+    await db.delete(category)
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot delete category due to database constraints."
+        )
+        
+    return {"status": "success", "message": "Category deleted successfully"}
+

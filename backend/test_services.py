@@ -11,6 +11,7 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 from app.api.routes.activations import activate_license, check_license
 from app.api.routes.auth import change_password, login
+from app.api.routes.categories import delete_category
 from app.api.routes.licenses import (
     create_licenses,
     delete_revoked_license,
@@ -190,6 +191,32 @@ async def run_tests() -> None:
         assert await db.scalar(
             select(LicenseActivation).where(LicenseActivation.license_id == target.id)
         ) is None
+
+        # Try to delete category with incorrect security code
+        try:
+            await delete_category(category.id, auth_code="wrong_code", db=db, current_admin=admin)
+            raise AssertionError("Category delete accepted incorrect auth code")
+        except HTTPException as exc:
+            assert exc.status_code == 400
+            assert "Incorrect security code" in exc.detail
+
+        # Try to delete category while licenses exist
+        try:
+            await delete_category(category.id, auth_code=settings.PASSWORD_CHANGE_AUTH_CODE, db=db, current_admin=admin)
+            raise AssertionError("Category delete allowed with associated licenses")
+        except HTTPException as exc:
+            assert exc.status_code == 400
+            assert "associated license keys" in exc.detail
+
+        # Clean up remaining licenses under category
+        from sqlalchemy import delete
+        await db.execute(delete(License))
+        await db.commit()
+
+        # Delete category with correct code
+        del_resp = await delete_category(category.id, auth_code=settings.PASSWORD_CHANGE_AUTH_CODE, db=db, current_admin=admin)
+        assert del_resp["status"] == "success"
+        assert await db.scalar(select(Category).where(Category.id == category.id)) is None
 
     await engine.dispose()
     print("All backend integration tests passed successfully.")
