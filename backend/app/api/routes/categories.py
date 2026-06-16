@@ -26,6 +26,23 @@ async def get_categories(
     categories = result.scalars().all()
     return categories
 
+@router.get("/{category_id}", response_model=CategoryOut)
+async def get_category(
+    category_id: uuid_mod.UUID,
+    db: AsyncSession = Depends(deps.get_db)
+):
+    """Retrieve details of a category by ID."""
+    result = await db.execute(
+        select(Category).filter_by(id=category_id)
+    )
+    category = result.scalars().first()
+    if not category:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Category not found"
+        )
+    return category
+
 @router.post("", response_model=CategoryOut, status_code=status.HTTP_201_CREATED)
 async def create_category(
     data: CategoryCreate,

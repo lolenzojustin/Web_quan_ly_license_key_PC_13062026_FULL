@@ -11,7 +11,7 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 from app.api.routes.activations import activate_license, check_license
 from app.api.routes.auth import change_password, login
-from app.api.routes.categories import delete_category
+from app.api.routes.categories import delete_category, get_category
 from app.api.routes.licenses import (
     create_licenses,
     delete_revoked_license,
@@ -72,6 +72,19 @@ async def run_tests() -> None:
         db.add(category)
         await db.commit()
         await db.refresh(category)
+
+        # Test get_category endpoint
+        fetched_cat = await get_category(category_id=category.id, db=db)
+        assert fetched_cat.id == category.id
+        assert fetched_cat.name == "Integration Test"
+
+        # Test get_category with invalid ID
+        import uuid
+        try:
+            await get_category(category_id=uuid.uuid4(), db=db)
+            raise AssertionError("get_category accepted non-existent ID")
+        except HTTPException as exc:
+            assert exc.status_code == 404
 
         created = await create_licenses(
             LicenseCreate(
