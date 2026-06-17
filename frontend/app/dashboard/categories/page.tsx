@@ -245,29 +245,31 @@ export default function CategoriesPage() {
             <div className="overflow-x-auto">
               <table className="w-full text-left text-sm border-collapse">
                 <thead>
-                  <tr className="border-b border-slate-800 text-slate-400 text-xs font-semibold uppercase tracking-wider">
-                    <th className="pb-3 font-semibold">Category Name</th>
-                    <th className="pb-3 font-semibold">Category ID</th>
-                    <th className="pb-3 font-semibold">Description</th>
-                    <th className="pb-3 font-semibold">Version</th>
-                    <th className="pb-3 font-semibold">Created Date</th>
-                    <th className="pb-3 font-semibold text-right">Actions</th>
+                  <tr className="border-b border-slate-800 text-slate-400 text-xs font-semibold uppercase tracking-wider bg-slate-950/20">
+                    <th className="p-4 font-semibold">Category Name</th>
+                    <th className="p-4 font-semibold">Category ID</th>
+                    <th className="p-4 font-semibold">Description</th>
+                    <th className="p-4 font-semibold">Version</th>
+                    <th className="p-4 font-semibold">Created Date</th>
+                    <th className="p-4 font-semibold text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-800/50">
                   {categories.map((cat) => (
                     <tr key={cat.id} className="hover:bg-slate-800/10 transition-colors group">
-                      <td className="py-4 font-semibold text-slate-200 flex items-center gap-2">
-                        <span className="w-2.5 h-2.5 rounded-full bg-blue-500/20 border border-blue-500/50 shrink-0" />
-                        <span>{cat.name}</span>
+                      <td className="p-4 font-semibold text-slate-200">
+                        <div className="flex items-center gap-2">
+                          <span className="w-2.5 h-2.5 rounded-full bg-blue-500/20 border border-blue-500/50 shrink-0" />
+                          <span>{cat.name}</span>
+                        </div>
                       </td>
-                      <td className="py-4 font-mono text-xs text-slate-500 select-all truncate max-w-[140px]" title={cat.id}>
+                      <td className="p-4 font-mono text-xs text-slate-500 select-all truncate max-w-[140px]" title={cat.id}>
                         {cat.id}
                       </td>
-                      <td className="py-4 text-slate-400 text-xs max-w-xs truncate" title={cat.description || ""}>
+                      <td className="p-4 text-slate-400 text-xs max-w-xs truncate" title={cat.description || ""}>
                         {cat.description || <span className="italic text-slate-600">No description</span>}
                       </td>
-                      <td className="py-4">
+                      <td className="p-4">
                         {cat.version ? (
                           <div className="flex items-center gap-1.5">
                             <span className="inline-flex items-center px-2.5 py-1 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-mono font-semibold">
@@ -289,10 +291,10 @@ export default function CategoriesPage() {
                           <span className="text-slate-600 text-xs italic">—</span>
                         )}
                       </td>
-                      <td className="py-4 text-slate-500 text-xs font-mono">
+                      <td className="p-4 text-slate-500 text-xs font-mono">
                         {new Date(cat.created_at).toLocaleDateString("vi-VN")}
                       </td>
-                      <td className="py-4 text-right">
+                      <td className="p-4 text-right">
                         <div className="flex items-center justify-end gap-2">
                           <button
                             onClick={() => openEditModal(cat)}
