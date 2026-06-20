@@ -19,8 +19,19 @@ echo -e "\033[1;34m   LICENSE KEY MANAGER - VPS AUTOMATED DEPLOYMENT        \033
 echo -e "\033[1;34m=========================================================\033[0m"
 echo ""
 
-# Get custom domain
-read -p "Enter your custom domain (e.g., license.yourdomain.com): " DOMAIN
+# ==============================================================================
+# CẤU HÌNH TÊN MIỀN (DOMAIN) CỦA BẠN TẠI ĐÂY:
+DOMAIN="license.yourdomain.com"
+# ==============================================================================
+
+if [ -z "$DOMAIN" ] || [ "$DOMAIN" = "license.yourdomain.com" ]; then
+  echo -e "\033[1;33mNhắc nhở: Hãy chỉnh sửa file deploy.sh để điền đúng tên miền của bạn.\033[0m"
+  read -p "Hoặc nhập tên miền của bạn ngay bây giờ: " INPUT_DOMAIN
+  if [ ! -z "$INPUT_DOMAIN" ]; then
+    DOMAIN="$INPUT_DOMAIN"
+  fi
+fi
+
 if [ -z "$DOMAIN" ]; then
   echo -e "\033[1;31mError: Custom domain cannot be empty.\033[0m"
   exit 1
