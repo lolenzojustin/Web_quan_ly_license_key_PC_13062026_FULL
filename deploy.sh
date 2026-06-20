@@ -45,6 +45,13 @@ if [ -z "$DB_PASSWORD" ]; then
   echo -e "\033[1;32mAuto-generated database password: $DB_PASSWORD\033[0m"
 fi
 
+# Escape single quotes in password for SQL queries (replace ' with '')
+ESCAPED_DB_PASSWORD=$(python3 -c "import sys; print(sys.argv[1].replace(\"'\", \"''\"))" "$DB_PASSWORD")
+
+# URL-encode the password for the connection string
+ENCODED_DB_PASSWORD=$(python3 -c "import urllib.parse, sys; print(urllib.parse.quote_plus(sys.argv[1]))" "$DB_PASSWORD")
+
+
 # Determine SCRIPT_DIR and execution users
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 REAL_USER=${SUDO_USER:-$USER}
@@ -66,8 +73,8 @@ systemctl enable postgresql
 
 # Create Database, User, and Grant Privileges
 sudo -u postgres psql -c "CREATE DATABASE license_manager;" || echo "Database already exists, skipping creation..."
-sudo -u postgres psql -c "CREATE USER license_user WITH PASSWORD '$DB_PASSWORD';" || echo "User already exists, updating password..."
-sudo -u postgres psql -c "ALTER USER license_user WITH PASSWORD '$DB_PASSWORD';"
+sudo -u postgres psql -c "CREATE USER license_user WITH PASSWORD '$ESCAPED_DB_PASSWORD';" || echo "User already exists, updating password..."
+sudo -u postgres psql -c "ALTER USER license_user WITH PASSWORD '$ESCAPED_DB_PASSWORD';"
 sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE license_manager TO license_user;"
 sudo -u postgres psql -d license_manager -c "GRANT ALL ON SCHEMA public TO license_user;"
 
@@ -93,7 +100,7 @@ PASSWORD_CHANGE_AUTH_CODE=$(openssl rand -hex 16)
 # Write backend .env file
 cat <<EOT > "$SCRIPT_DIR/backend/.env"
 PROJECT_NAME="License Key Manager"
-DATABASE_URL=postgresql+asyncpg://license_user:$DB_PASSWORD@127.0.0.1:5432/license_manager
+DATABASE_URL=postgresql+asyncpg://license_user:$ENCODED_DB_PASSWORD@127.0.0.1:5432/license_manager
 SECRET_KEY=$SECRET_KEY
 ACCESS_TOKEN_EXPIRE_MINUTES=1440
 INITIAL_ADMIN_USERNAME=admin
@@ -102,6 +109,27 @@ PASSWORD_CHANGE_AUTH_CODE=$PASSWORD_CHANGE_AUTH_CODE
 ALLOWED_ORIGINS=["https://$DOMAIN", "http://$DOMAIN"]
 EOT
 chown $REAL_USER:$REAL_USER "$SCRIPT_DIR/backend/.env"
+
+# Test PostgreSQL database connection
+echo "Testing database connection..."
+if ! sudo -u $REAL_USER ./venv/bin/python -c "
+import asyncio, sys
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import create_async_engine
+async def test():
+    engine = create_async_engine('postgresql+asyncpg://license_user:$ENCODED_DB_PASSWORD@127.0.0.1:5432/license_manager')
+    try:
+        async with engine.connect() as conn:
+            await conn.execute(text('SELECT 1'))
+        print('Database connection test successful.')
+    except Exception as e:
+        print(f'Database connection test failed: {e}', file=sys.stderr)
+        sys.exit(1)
+asyncio.run(test())
+" ; then
+    echo -e "\033[1;31mError: Database connection test failed. Aborting deployment.\033[0m"
+    exit 1
+fi
 
 # Execute database migration and seed admin account
 echo "Running alembic migrations & database seeding..."
