@@ -67,31 +67,37 @@ curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
 apt install -y nodejs
 
 # Configure PostgreSQL database
-echo -e "\033[1;33m\n[3/7] Setting up PostgreSQL database...\033[0m"
-systemctl start postgresql
+echo -e "\033[1;33m\n[3/7] Setting up PostgreSQL database (port 5433)...\033[0m"
+CONF_FILES=$(find /etc/postgresql/ -name "postgresql.conf")
+for conf in $CONF_FILES; do
+  echo "Configuring PostgreSQL port to 5433 in $conf..."
+  sed -i "s/#port = 5432/port = 5433/g" "$conf"
+  sed -i "s/port = 5432/port = 5433/g" "$conf"
+done
+systemctl restart postgresql
 systemctl enable postgresql
 
 # Create Database, User, and Grant Privileges
 echo "Creating database license_manager..."
-sudo -u postgres psql -c "CREATE DATABASE license_manager;" 2>&1 | grep -E -v "already exists|already exists"
+sudo -u postgres psql -p 5433 -c "CREATE DATABASE license_manager;" 2>&1 | grep -E -v "already exists|already exists"
 
 echo "Creating database user..."
-sudo -u postgres psql -c "CREATE USER license_user WITH PASSWORD '$ESCAPED_DB_PASSWORD';" 2>&1 | grep -E -v "already exists|already exists"
+sudo -u postgres psql -p 5433 -c "CREATE USER license_user WITH PASSWORD '$ESCAPED_DB_PASSWORD';" 2>&1 | grep -E -v "already exists|already exists"
 
 echo "Updating database user password..."
-if ! sudo -u postgres psql -c "ALTER USER license_user WITH PASSWORD '$ESCAPED_DB_PASSWORD';" ; then
+if ! sudo -u postgres psql -p 5433 -c "ALTER USER license_user WITH PASSWORD '$ESCAPED_DB_PASSWORD';" ; then
     echo -e "\033[1;31mError: Failed to update password for user 'license_user' in PostgreSQL.\033[0m"
     exit 1
 fi
 
 echo "Granting database privileges..."
-if ! sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE license_manager TO license_user;" ; then
+if ! sudo -u postgres psql -p 5433 -c "GRANT ALL PRIVILEGES ON DATABASE license_manager TO license_user;" ; then
     echo -e "\033[1;31mError: Failed to grant database privileges to 'license_user'.\033[0m"
     exit 1
 fi
 
 echo "Granting schema privileges..."
-if ! sudo -u postgres psql -d license_manager -c "GRANT ALL ON SCHEMA public TO license_user;" ; then
+if ! sudo -u postgres psql -p 5433 -d license_manager -c "GRANT ALL ON SCHEMA public TO license_user;" ; then
     echo -e "\033[1;31mError: Failed to grant schema privileges on public to 'license_user'.\033[0m"
     exit 1
 fi
@@ -118,7 +124,7 @@ PASSWORD_CHANGE_AUTH_CODE=$(openssl rand -hex 16)
 # Write backend .env file
 cat <<EOT > "$SCRIPT_DIR/backend/.env"
 PROJECT_NAME="License Key Manager"
-DATABASE_URL=postgresql+asyncpg://license_user:$ENCODED_DB_PASSWORD@127.0.0.1:5432/license_manager
+DATABASE_URL=postgresql+asyncpg://license_user:$ENCODED_DB_PASSWORD@127.0.0.1:5433/license_manager
 SECRET_KEY=$SECRET_KEY
 ACCESS_TOKEN_EXPIRE_MINUTES=1440
 INITIAL_ADMIN_USERNAME=admin
@@ -135,7 +141,7 @@ import asyncio, sys
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 async def test():
-    engine = create_async_engine('postgresql+asyncpg://license_user:$ENCODED_DB_PASSWORD@127.0.0.1:5432/license_manager')
+    engine = create_async_engine('postgresql+asyncpg://license_user:$ENCODED_DB_PASSWORD@127.0.0.1:5433/license_manager')
     try:
         async with engine.connect() as conn:
             await conn.execute(text('SELECT 1'))
@@ -149,14 +155,14 @@ asyncio.run(test())
     echo -e "\033[1;33m\n=== DIAGNOSTIC INFORMATION ===\033[0m"
     echo "1. Checking active PostgreSQL systemd services..."
     systemctl status postgresql --no-pager || true
-    echo "2. Checking listening ports on the system (port 5432)..."
-    ss -tlnp | grep 5432 || netstat -tlnp | grep 5432 || true
+    echo "2. Checking listening ports on the system (port 5432 and 5433)..."
+    ss -tlnp | grep -E "5432|5433" || netstat -tlnp | grep -E "5432|5433" || true
     echo "3. Checking running postgres processes..."
     ps aux | grep -E "postgres|postmaster" | grep -v grep || true
     echo "4. Checking default psql version..."
     psql --version || true
-    echo "5. Testing connection via local Unix socket using psql..."
-    sudo -u postgres psql -l || true
+    echo "5. Testing connection via local Unix socket using psql on port 5433..."
+    sudo -u postgres psql -p 5433 -l || true
     exit 1
 fi
 
@@ -297,6 +303,7 @@ echo -e "\033[1;33m[Database Credentials]\033[0m"
 echo -e "- Database Name:           \033[1;37mlicense_manager\033[0m"
 echo -e "- Database Username:       \033[1;37mlicense_user\033[0m"
 echo -e "- Database Password:       \033[1;37m$DB_PASSWORD\033[0m"
+echo -e "- Database Port:           \033[1;37m5433\033[0m"
 echo ""
 echo -e "You can manage services using systemctl:"
 echo -e "  - Backend Status:  \033[1;35msudo systemctl status license-backend\033[0m"
