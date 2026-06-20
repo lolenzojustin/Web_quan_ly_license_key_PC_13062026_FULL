@@ -72,11 +72,29 @@ systemctl start postgresql
 systemctl enable postgresql
 
 # Create Database, User, and Grant Privileges
-sudo -u postgres psql -c "CREATE DATABASE license_manager;" || echo "Database already exists, skipping creation..."
-sudo -u postgres psql -c "CREATE USER license_user WITH PASSWORD '$ESCAPED_DB_PASSWORD';" || echo "User already exists, updating password..."
-sudo -u postgres psql -c "ALTER USER license_user WITH PASSWORD '$ESCAPED_DB_PASSWORD';"
-sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE license_manager TO license_user;"
-sudo -u postgres psql -d license_manager -c "GRANT ALL ON SCHEMA public TO license_user;"
+echo "Creating database license_manager..."
+sudo -u postgres psql -c "CREATE DATABASE license_manager;" 2>&1 | grep -E -v "already exists|already exists"
+
+echo "Creating database user..."
+sudo -u postgres psql -c "CREATE USER license_user WITH PASSWORD '$ESCAPED_DB_PASSWORD';" 2>&1 | grep -E -v "already exists|already exists"
+
+echo "Updating database user password..."
+if ! sudo -u postgres psql -c "ALTER USER license_user WITH PASSWORD '$ESCAPED_DB_PASSWORD';" ; then
+    echo -e "\033[1;31mError: Failed to update password for user 'license_user' in PostgreSQL.\033[0m"
+    exit 1
+fi
+
+echo "Granting database privileges..."
+if ! sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE license_manager TO license_user;" ; then
+    echo -e "\033[1;31mError: Failed to grant database privileges to 'license_user'.\033[0m"
+    exit 1
+fi
+
+echo "Granting schema privileges..."
+if ! sudo -u postgres psql -d license_manager -c "GRANT ALL ON SCHEMA public TO license_user;" ; then
+    echo -e "\033[1;31mError: Failed to grant schema privileges on public to 'license_user'.\033[0m"
+    exit 1
+fi
 
 # Setup Backend environment and libraries
 echo -e "\033[1;33m\n[4/7] Setting up Backend virtual environment & migrations...\033[0m"
