@@ -146,6 +146,17 @@ async def test():
 asyncio.run(test())
 " ; then
     echo -e "\033[1;31mError: Database connection test failed. Aborting deployment.\033[0m"
+    echo -e "\033[1;33m\n=== DIAGNOSTIC INFORMATION ===\033[0m"
+    echo "1. Checking active PostgreSQL systemd services..."
+    systemctl status postgresql --no-pager || true
+    echo "2. Checking listening ports on the system (port 5432)..."
+    ss -tlnp | grep 5432 || netstat -tlnp | grep 5432 || true
+    echo "3. Checking running postgres processes..."
+    ps aux | grep -E "postgres|postmaster" | grep -v grep || true
+    echo "4. Checking default psql version..."
+    psql --version || true
+    echo "5. Testing connection via local Unix socket using psql..."
+    sudo -u postgres psql -l || true
     exit 1
 fi
 
