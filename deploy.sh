@@ -66,7 +66,8 @@ systemctl enable postgresql
 
 # Create Database, User, and Grant Privileges
 sudo -u postgres psql -c "CREATE DATABASE license_manager;" || echo "Database already exists, skipping creation..."
-sudo -u postgres psql -c "CREATE USER license_user WITH PASSWORD '$DB_PASSWORD';" || echo "User already exists, skipping creation..."
+sudo -u postgres psql -c "CREATE USER license_user WITH PASSWORD '$DB_PASSWORD';" || echo "User already exists, updating password..."
+sudo -u postgres psql -c "ALTER USER license_user WITH PASSWORD '$DB_PASSWORD';"
 sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE license_manager TO license_user;"
 sudo -u postgres psql -d license_manager -c "GRANT ALL ON SCHEMA public TO license_user;"
 
