@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 # ==============================================================================
 # Web License Manager - VPS Deployment Automation Script
@@ -20,13 +20,13 @@ echo -e "\033[1;34m=========================================================\033
 echo ""
 
 # ==============================================================================
-# CẤU HÌNH TÊN MIỀN (DOMAIN) CỦA BẠN TẠI ĐÂY:
-DOMAIN="license.yourdomain.com"
+# Cáº¤U HÃŒNH TÃŠN MIá»€N (DOMAIN) Cá»¦A Báº N Táº I ÄÃ‚Y:
+DOMAIN="vuihappy.com"
 # ==============================================================================
 
 if [ -z "$DOMAIN" ] || [ "$DOMAIN" = "license.yourdomain.com" ]; then
-  echo -e "\033[1;33mNhắc nhở: Hãy chỉnh sửa file deploy.sh để điền đúng tên miền của bạn.\033[0m"
-  read -p "Hoặc nhập tên miền của bạn ngay bây giờ: " INPUT_DOMAIN
+  echo -e "\033[1;33mNháº¯c nhá»Ÿ: HÃ£y chá»‰nh sá»­a file deploy.sh Ä‘á»ƒ Ä‘iá»n Ä‘Ãºng tÃªn miá»n cá»§a báº¡n.\033[0m"
+  read -p "Hoáº·c nháº­p tÃªn miá»n cá»§a báº¡n ngay bÃ¢y giá»: " INPUT_DOMAIN
   if [ ! -z "$INPUT_DOMAIN" ]; then
     DOMAIN="$INPUT_DOMAIN"
   fi
@@ -202,9 +202,11 @@ systemctl restart license-backend
 echo -e "\033[1;33m\n[5/7] Building Frontend Next.js application...\033[0m"
 cd "$SCRIPT_DIR/frontend"
 
-# Write frontend .env file pointing to domain
+# Clear frontend .env before building. The frontend uses the browser current origin in production,
+# so changing domains does not require baking a new API URL into the JavaScript bundle.
 cat <<EOT > "$SCRIPT_DIR/frontend/.env"
-NEXT_PUBLIC_API_URL=https://$DOMAIN
+# NEXT_PUBLIC_API_URL is intentionally unset for same-domain deployments.
+# Set it only if the API runs on a different domain.
 EOT
 chown $REAL_USER:$REAL_USER "$SCRIPT_DIR/frontend/.env"
 
