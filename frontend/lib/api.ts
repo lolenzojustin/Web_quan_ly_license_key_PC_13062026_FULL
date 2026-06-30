@@ -1,4 +1,17 @@
-const BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+const getBaseUrl = () => {
+  if (process.env.NEXT_PUBLIC_API_URL) {
+    return process.env.NEXT_PUBLIC_API_URL;
+  }
+  if (typeof window !== "undefined") {
+    const origin = window.location.origin;
+    if (!origin.includes("localhost") && !origin.includes("127.0.0.1") && !origin.includes("[::1]")) {
+      return origin;
+    }
+  }
+  return "http://localhost:8000";
+};
+
+const BASE_URL = getBaseUrl();
 
 interface RequestOptions extends RequestInit {
   params?: Record<string, string | number | undefined>;
