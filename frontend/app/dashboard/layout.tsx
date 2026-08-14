@@ -141,7 +141,7 @@ export default function DashboardLayout({
             <h2 className="text-sm font-medium text-slate-400 uppercase tracking-wider">
               {pathname === "/dashboard" && (
                 <>
-                  Dashboard <span className="text-cyan-400 font-bold ml-4">Lê Minh Thắng</span>
+                  Dashboard <span className="text-blue-800 font-bold ml-4">Lê Minh Thắng</span>
                 </>
               )}
               {pathname === "/dashboard/licenses" && "License Keys Management"}
