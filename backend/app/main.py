@@ -2,7 +2,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
-from app.api.routes import auth, categories, licenses, activations
+from app.api.routes import auth, categories, licenses, activations, system
 from app.db.init_db import setup_database
 
 @asynccontextmanager
@@ -41,6 +41,7 @@ app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
 app.include_router(categories.router, prefix="/api/categories", tags=["categories"])
 app.include_router(licenses.router, prefix="/api/licenses", tags=["licenses"])
 app.include_router(activations.router, prefix="/api/activation", tags=["activation"])
+app.include_router(system.router, prefix="/api/system", tags=["system"])
 
 @app.get("/api/health", tags=["health"])
 def health_check():

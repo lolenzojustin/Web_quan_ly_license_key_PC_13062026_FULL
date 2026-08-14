@@ -12,7 +12,8 @@ import {
   LogOut, 
   Menu, 
   X,
-  ShieldCheck
+  ShieldCheck,
+  RefreshCw
 } from "lucide-react";
 
 export default function DashboardLayout({
@@ -52,6 +53,7 @@ export default function DashboardLayout({
     { name: "Overview", path: "/dashboard", icon: LayoutDashboard },
     { name: "Licenses", path: "/dashboard/licenses", icon: Key },
     { name: "Categories", path: "/dashboard/categories", icon: FolderKanban },
+    { name: "Updates", path: "/dashboard/updates", icon: RefreshCw },
     { name: "Settings", path: "/dashboard/settings", icon: Settings },
   ];
 
@@ -137,9 +139,14 @@ export default function DashboardLayout({
               <Menu className="w-6 h-6" />
             </button>
             <h2 className="text-sm font-medium text-slate-400 uppercase tracking-wider">
-              {pathname === "/dashboard" && "Dashboard Overview"}
+              {pathname === "/dashboard" && (
+                <>
+                  Dashboard <span className="text-cyan-400 font-bold ml-4">Lê Minh Thắng</span>
+                </>
+              )}
               {pathname === "/dashboard/licenses" && "License Keys Management"}
               {pathname === "/dashboard/categories" && "Categories Management"}
+              {pathname === "/dashboard/updates" && "System Updates"}
               {pathname === "/dashboard/settings" && "Account Settings"}
             </h2>
           </div>
